@@ -1,6 +1,6 @@
 {
   "name": "agentic-campaign",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Social campaign planning, draft approvals, and queue exports for Node.js and TypeScript, with CLI and Model Context Protocol tools.",
   "keywords": [
     "campaign-planning",
