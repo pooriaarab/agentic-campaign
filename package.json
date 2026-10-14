@@ -1,14 +1,20 @@
 {
   "name": "agentic-campaign",
   "version": "0.1.0",
-  "description": "Plan a social campaign calendar across brands and platforms.",
+  "description": "Social campaign planning, draft approvals, and queue exports for Node.js and TypeScript, with CLI and Model Context Protocol tools.",
   "keywords": [
-    "campaign",
-    "calendar",
-    "planning",
-    "agentic-suite",
+    "campaign-planning",
+    "content-calendar",
+    "social-media",
+    "draft-approval",
+    "queue-export",
+    "typescript",
+    "nodejs",
     "cli",
-    "mcp"
+    "mcp",
+    "model-context-protocol",
+    "zod",
+    "agentic-publish"
   ],
   "license": "MIT",
   "author": "Pooria Arab",
