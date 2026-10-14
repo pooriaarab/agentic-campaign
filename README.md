@@ -1,108 +1,40 @@
-# Agentic campaign
+# Agentic Campaign
 
-Plan a social campaign calendar across brands and platforms.
+`agentic-campaign` plans social campaign calendars; it never publishes.
 
-Clone this repo to start a new pack. It gives one core with three
-faces: a terminal command, an npm import, and an MCP server.
-
-## What you get
-
-- One core: brand config, logs, guards, routing, dry run, cost reports.
-- Three faces over that core: CLI, library, MCP server.
-- A frozen core contract, so packs share one API.
-- A worker entry and a wrangler sample for edge deploys.
-- Build, typecheck, and tests that pass from a fresh clone.
-
-## Quick start
+## Install and verify
 
 ```sh
-git clone https://github.com/pooriaarab/agentic-campaign.git my-pack
-cd my-pack
 npm install
-npm run build
-npm run typecheck
-npm test
-```
-
-Run the command:
-
-```sh
-node dist/cli.js summary --text "hello world hello"
-```
-
-Call the library:
-
-```js
-import { summarizeText } from "./dist/index.js";
-
-console.log(summarizeText("hello world hello"));
-```
-
-Start the MCP server:
-
-```sh
-node dist/cli.js mcp
-```
-
-## Three usecases
-
-1. You run one text summary from the terminal.
-2. You import the summary function in a script.
-3. You let an agent call the same function as an MCP tool.
-
-## Clone checklist
-
-This repo is a template. Replace each slot in each file that holds it.
-
-- `agentic-campaign`: the directory name, like `my-pack`.
-- `agentic-campaign`: the npm name, like `agentic-<block>` (bare name, never @pooriaarab/ scoped unless the brief says scoped).
-- `agentic-campaign`: the terminal command, like `my-pack`.
-- `Plan a social campaign calendar across brands and platforms.`: one plain sentence, under 100 chars.
-- `campaign,calendar,planning,agentic-suite,cli,mcp`: plain keywords, like `notes, search, cli`.
-- `pooriaarab`: the repo owner, like `pooriaarab`.
-
-Slot files: `AGENTS.md`, `SKILL.md`, `RULES.md`, `llms.txt`,
-`server.json`, `.mcp.json`, `wrangler.jsonc`.
-
-Then rename the scaffold identity itself:
-
-- `package.json`: name, bin commands, mcpName. Remove `"private": true`.
-- `src/index.ts`: the `DEFAULT_BRAND` fields.
-- This file: the pitch and the examples above.
-
-At publish time, set `server.json` version to the npm version and
-`server.json` repository id from `gh api repos/OWNER/REPO --jq .id`.
-
-## Gates
-
-Run all three before you push a pack:
-
-```sh
 npm run build && npm run typecheck && npm test
+node dist/cli.js --help
 ```
 
-Then run the real installed CLI once from a tarball:
+## CLI
 
 ```sh
-npm pack
-npx --yes --package ./pooriaarab-agentic-campaign-0.1.0.tgz agentic-pack summary --text "hello"
+agentic-campaign campaign create --brand Acme --goal "launch a new feature" \
+  --platforms linkedin,x --weeks 2 --posts-per-week 3
 ```
 
-## Release flow
+Use `campaign list`, `campaign show --id <id>`, and `campaign export --id <id>`.
+Approving a slot is a guarded state change and requires both `--live` and `--approve`:
 
-Push to `main` for review. Merge to `release` to publish. The
-publish workflow ships only when the version is new.
+```sh
+agentic-campaign campaign approve-slot --id <id> --slot slot-1 --live --approve
+```
 
-## Layout
+Exports contain only approved or scheduled slots and return queue items shaped as `{ brand, text, targets }`. Generated draft text carries an AI-assistance disclosure.
 
-- `src/index.ts`: the library face.
-- `src/cli.ts`: the terminal face.
-- `src/mcp.ts`: the MCP server. `src/mcp-bin.ts` starts it.
-- `src/worker.ts`: the edge worker face.
-- `src/core.ts`: the shared core.
-- `agentic-core.d.ts`: the frozen contract.
-- `docs/agentic-core.md`: the contract in plain words.
+## Library
 
-## License
+```ts
+import { createCampaign, approveSlot, exportQueue } from "agentic-campaign";
+const campaign = createCampaign({ brand: "Acme", goal: "launch", platforms: ["linkedin"], weeks: 1, postsPerWeek: 2 });
+const approved = approveSlot(campaign, "slot-1", { live: true, approved: true });
+console.log(exportQueue(approved));
+```
 
-MIT. See `LICENSE`.
+## MCP
+
+Run `agentic-campaign mcp`. Tools: `create_campaign`, `list_campaigns`, `show_campaign`, `approve_campaign_slot`, `export_campaign_queue`, and `get_cost_report`.

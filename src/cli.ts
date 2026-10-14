@@ -1,197 +1,32 @@
 #!/usr/bin/env node
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import {
-  dispatchText,
-  getCostReport,
-  GuardError,
-  LocalRouterAdapter,
-  summarizeText,
-  VendorError,
-  type RouterAdapter,
-} from "./core.js";
+import { approveSlot, createCampaign, exportQueue, getCostReport, GuardError, VendorError, type Campaign, type CampaignBrief } from "./index.js";
 import { DEFAULT_BRAND } from "./index.js";
 import { VERSION } from "./version.js";
 
-export class UsageError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "UsageError";
-  }
-}
+export class UsageError extends Error { constructor(message: string) { super(message); this.name = "UsageError"; } }
+export type CliCommand = "campaign" | "costs" | "mcp" | "help" | "version";
+export interface CliRequest { command: CliCommand; action?: "create" | "list" | "show" | "approve-slot" | "export"; brand?: string; goal?: string; platforms?: string[]; weeks?: number; postsPerWeek?: number; startDate?: string; id?: string; slotId?: string; live: boolean; approved: boolean; }
 
-export type CliCommand = "summary" | "dispatch" | "costs" | "mcp" | "help" | "version";
-
-export interface CliRequest {
-  command: CliCommand;
-  text?: string;
-  file?: string;
-  dryRun: boolean;
-  topN?: number;
-}
-
+function integer(value: string, flag: string): number { const result = Number(value); if (!Number.isInteger(result) || result < 1) throw new UsageError(`${flag} needs an integer of 1 or more`); return result; }
 export function parseArgs(argv: string[]): CliRequest {
-  const request: CliRequest = { command: "help", dryRun: false };
-  const args = [...argv];
-  const first = args.shift();
-  if (first === undefined || first === "--help" || first === "-h") {
-    return request;
-  }
-  if (first === "--version" || first === "-V") {
-    request.command = "version";
-    return request;
-  }
-  if (first !== "summary" && first !== "dispatch" && first !== "costs" && first !== "mcp") {
-    throw new UsageError(`unknown command "${first}"`);
-  }
-  request.command = first;
-  while (args.length > 0) {
-    const flag = args.shift() as string;
-    if (flag === "--dry-run" && request.command === "dispatch") {
-      request.dryRun = true;
-      continue;
-    }
-    if ((flag === "--text" || flag === "--file" || flag === "--top") && args.length > 0) {
-      const value = args.shift() as string;
-      if (flag === "--text") request.text = value;
-      if (flag === "--file") request.file = value;
-      if (flag === "--top") {
-        const topN = Number.parseInt(value, 10);
-        if (!Number.isInteger(topN) || topN < 0) {
-          throw new UsageError(`--top needs an integer of 0 or more, got "${value}"`);
-        }
-        request.topN = topN;
-      }
-      continue;
-    }
-    throw new UsageError(`unknown flag "${flag}" for "${request.command}"`);
-  }
-  if (
-    (request.command === "summary" || request.command === "dispatch") &&
-    request.text === undefined &&
-    request.file === undefined
-  ) {
-    throw new UsageError(`${request.command} needs --text or --file`);
-  }
+  const request: CliRequest = { command: "help", live: false, approved: false }; const args = [...argv]; const first = args.shift();
+  if (!first || first === "--help" || first === "-h") return request;
+  if (first === "--version" || first === "-V") return { ...request, command: "version" };
+  if (first === "costs" || first === "mcp") { request.command = first; return request; }
+  if (first !== "campaign") throw new UsageError(`unknown command "${first}"`);
+  const action = args.shift(); if (!action || !["create", "list", "show", "approve-slot", "export"].includes(action)) throw new UsageError("campaign needs create, list, show, approve-slot, or export");
+  request.command = "campaign"; request.action = action as CliRequest["action"];
+  while (args.length) { const flag = args.shift()!; if (flag === "--live") { request.live = true; continue; } if (flag === "--approve") { request.approved = true; continue; } const value = args.shift(); if (!value) throw new UsageError(`${flag} needs a value`); if (flag === "--brand") request.brand = value; else if (flag === "--goal") request.goal = value; else if (flag === "--platforms") request.platforms = value.split(",").map((p) => p.trim()).filter(Boolean); else if (flag === "--weeks") request.weeks = integer(value, flag); else if (flag === "--posts-per-week") request.postsPerWeek = integer(value, flag); else if (flag === "--start-date") request.startDate = value; else if (flag === "--id") request.id = value; else if (flag === "--slot") request.slotId = value; else throw new UsageError(`unknown flag "${flag}"`); }
+  if (request.action === "create" && (!request.brand || !request.goal || !request.platforms || !request.weeks || !request.postsPerWeek)) throw new UsageError("campaign create needs --brand --goal --platforms --weeks --posts-per-week");
+  if (["show", "approve-slot", "export"].includes(request.action!) && !request.id) throw new UsageError(`campaign ${request.action} needs --id`);
+  if (request.action === "approve-slot" && !request.slotId) throw new UsageError("campaign approve-slot needs --slot");
   return request;
 }
-
-export interface CliIo {
-  out(line: string): void;
-  err(line: string): void;
-  readFile(path: string): string;
-  router: RouterAdapter;
-}
-
-function defaultIo(): CliIo {
-  return {
-    out: (line) => console.log(line),
-    err: (line) => console.error(line),
-    readFile: (path) => readFileSync(path, "utf8"),
-    router: new LocalRouterAdapter(),
-  };
-}
-
-function helpText(): string {
-  const command = DEFAULT_BRAND.command;
-  return [
-    `${DEFAULT_BRAND.name} ${VERSION}`,
-    `${DEFAULT_BRAND.description}`,
-    "",
-    `Usage: ${command} <command> [flags]`,
-    "",
-    "Commands:",
-    "  summary --text <t> [--file <p>] [--top <n>]  Print text stats as JSON.",
-    "  dispatch --text <t> [--file <p>] [--dry-run] Route one text, print the receipt.",
-    "  costs                                      Print the cost report as JSON.",
-    "  mcp                                        Start the MCP server on stdio.",
-    "",
-    "Flags:",
-    "  --help, -h       Print this help.",
-    "  --version, -V    Print the version.",
-  ].join("\n");
-}
-
-function readInput(request: CliRequest, io: CliIo): string {
-  if (request.file !== undefined) {
-    return io.readFile(request.file);
-  }
-  return request.text ?? "";
-}
-
-export async function runCli(argv: string[], io: CliIo = defaultIo()): Promise<number> {
-  let request: CliRequest;
-  try {
-    request = parseArgs(argv);
-  } catch (error) {
-    io.err(error instanceof Error ? error.message : String(error));
-    io.err(`Run "${DEFAULT_BRAND.command} --help" for usage.`);
-    return 2;
-  }
-  try {
-    switch (request.command) {
-      case "help":
-        io.out(helpText());
-        return 0;
-      case "version":
-        io.out(VERSION);
-        return 0;
-      case "summary": {
-        const summary = summarizeText(readInput(request, io), { topN: request.topN });
-        io.out(JSON.stringify(summary));
-        return 0;
-      }
-      case "dispatch": {
-        const result = await dispatchText(readInput(request, io), {
-          adapter: io.router,
-          dryRun: request.dryRun,
-        });
-        io.out(JSON.stringify(result));
-        return 0;
-      }
-      case "costs":
-        io.out(JSON.stringify(getCostReport()));
-        return 0;
-      case "mcp": {
-        const { startMcp } = await import("./mcp.js");
-        await startMcp();
-        return 0;
-      }
-    }
-  } catch (error) {
-    if (error instanceof GuardError || error instanceof VendorError || error instanceof UsageError) {
-      io.err(`${error.name}: ${error.message}`);
-      return 1;
-    }
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      io.err(`file not found: ${request.file ?? ""}`);
-      return 1;
-    }
-    throw error;
-  }
-}
-
-function isMainModule(): boolean {
-  const invoked = process.argv[1];
-  if (typeof invoked !== "string") return false;
-  try {
-    return import.meta.url === pathToFileURL(realpathSync(invoked)).href;
-  } catch {
-    return false;
-  }
-}
-
-if (isMainModule()) {
-  runCli(process.argv.slice(2)).then(
-    (code) => {
-      // Exit nonzero at once. On zero, fall off the end so a running
-      // server (mcp) keeps its stdio handles open. Plain commands
-      // hold no handles and exit 0 on their own.
-      if (code !== 0) process.exit(code);
-    },
-    (error: unknown) => {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
-    },
-  );
-}
+export interface CliIo { out(line: string): void; err(line: string): void; campaigns: Map<string, Campaign>; }
+function defaultIo(): CliIo { return { out: console.log, err: console.error, campaigns: new Map() }; }
+function helpText(): string { return `${DEFAULT_BRAND.name} ${VERSION}\n\nUsage: agentic-campaign campaign <create|list|show|approve-slot|export> [flags]\n\nCommands:\n  campaign create --brand <name> --goal <goal> --platforms <a,b> --weeks <n> --posts-per-week <n>\n  campaign list\n  campaign show --id <id>\n  campaign approve-slot --id <id> --slot <slot-id> --live --approve\n  campaign export --id <id>\n  costs\n  mcp`; }
+export async function runCli(argv: string[], io: CliIo = defaultIo()): Promise<number> { try { const request = parseArgs(argv); if (request.command === "help") { io.out(helpText()); return 0; } if (request.command === "version") { io.out(VERSION); return 0; } if (request.command === "costs") { io.out(JSON.stringify(getCostReport())); return 0; } if (request.command === "mcp") { const { startMcp } = await import("./mcp.js"); await startMcp(); return 0; } if (request.action === "create") { const campaign = createCampaign({ brand: request.brand!, goal: request.goal!, platforms: request.platforms!, weeks: request.weeks!, postsPerWeek: request.postsPerWeek!, startDate: request.startDate } satisfies CampaignBrief); io.campaigns.set(campaign.id, campaign); io.out(JSON.stringify(campaign)); return 0; } if (request.action === "list") { io.out(JSON.stringify([...io.campaigns.values()])); return 0; } const campaign = io.campaigns.get(request.id!); if (!campaign) throw new UsageError(`campaign "${request.id}" was not found`); if (request.action === "show") { io.out(JSON.stringify(campaign)); return 0; } if (request.action === "export") { io.out(JSON.stringify(exportQueue(campaign))); return 0; } const updated = approveSlot(campaign, request.slotId!, { live: request.live, approved: request.approved }); io.campaigns.set(updated.id, updated); io.out(JSON.stringify(updated)); return 0; } catch (error) { io.err(`${error instanceof Error ? error.name : "Error"}: ${error instanceof Error ? error.message : String(error)}`); return error instanceof UsageError ? 2 : 1; } }
+function isMainModule(): boolean { try { return typeof process.argv[1] === "string" && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href; } catch { return false; } }
+if (isMainModule()) runCli(process.argv.slice(2)).then((code) => { if (code) process.exit(code); });
