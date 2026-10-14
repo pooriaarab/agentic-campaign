@@ -1,0 +1,15 @@
+# agentic-campaign
+
+Plan a social campaign calendar across brands and platforms.
+
+Keywords: campaign,calendar,planning,agentic-suite,cli,mcp.
+
+- SDK: import { summarizeText, dispatchText } from "agentic-campaign".
+- CLI: agentic-campaign summary --text "...".
+- MCP: run agentic-campaign mcp, then call summarize_text.
+
+## Docs
+
+- README: https://github.com/pooriaarab/agentic-campaign
+- Core contract: https://github.com/pooriaarab/agentic-campaign/blob/main/docs/agentic-core.md
+- License: MIT
